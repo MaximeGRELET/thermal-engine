@@ -1,0 +1,195 @@
+{
+  "type": "FeatureCollection",
+  "id": "bat_mixte_lyon_001",
+  "properties": {
+    "building_id": "bat_mixte_lyon_001",
+    "name": "Immeuble mixte — Lyon 3e",
+    "coordinate_system": "WGS84",
+    "location": {
+      "city": "Lyon",
+      "latitude": 45.756,
+      "longitude": 4.854
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "zone_rdc_commercial",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [4.854000, 45.756000],
+          [4.854154, 45.756000],
+          [4.854154, 45.756090],
+          [4.854000, 45.756090],
+          [4.854000, 45.756000]
+        ]]
+      },
+      "properties": {
+        "zone_id":    "zone_rdc_commercial",
+        "zone_label": "RDC — Local commercial",
+        "usage":      "retail",
+        "height_m":   4.5,
+        "n_floors":   1,
+        "year_built": 1978,
+        "is_ground_floor": true,
+        "construction_class": "heavy",
+        "envelope": {
+          "walls": {
+            "composition": {
+              "layers": [
+                {"material_id": "concrete_dense", "thickness_m": 0.20},
+                {"material_id": "plasterboard",   "thickness_m": 0.013}
+              ],
+              "surface_resistance_interior": 0.13,
+              "surface_resistance_exterior": 0.04
+            }
+          },
+          "roof": {
+            "type": "flat",
+            "composition": {
+              "layers": [
+                {"material_id": "concrete_dense",   "thickness_m": 0.20},
+                {"material_id": "eps_insulation",   "thickness_m": 0.08},
+                {"material_id": "bitumen_membrane", "thickness_m": 0.005}
+              ],
+              "surface_resistance_interior": 0.10,
+              "surface_resistance_exterior": 0.04
+            }
+          },
+          "ground_floor": {
+            "composition": {
+              "layers": [
+                {"material_id": "concrete_dense", "thickness_m": 0.20},
+                {"material_id": "screed",         "thickness_m": 0.05}
+              ],
+              "surface_resistance_interior": 0.17,
+              "surface_resistance_exterior": 0.04
+            }
+          },
+          "windows": {
+            "wwr_by_orientation": {
+              "north": 0.10,
+              "south": 0.50,
+              "east":  0.30,
+              "west":  0.10
+            },
+            "glazing": {
+              "uw_w_m2k": 3.0,
+              "g_value":  0.75,
+              "frame_factor": 0.70
+            }
+          },
+          "thermal_bridge_quality": "default"
+        },
+        "ventilation": {
+          "type": "natural",
+          "air_change_rate_h": 1.0
+        },
+        "energy_systems": [
+          {
+            "system_id": "gaz_commercial",
+            "type": "gas_boiler",
+            "fuel": "natural_gas",
+            "covers": ["heating"],
+            "efficiency_nominal": 0.87,
+            "distribution": "radiators"
+          }
+        ],
+        "occupancy": {
+          "schedule":          "retail_standard",
+          "n_persons_per_m2":  0.20,
+          "appliances_w_m2":   8.0,
+          "lighting_w_m2":     15.0
+        },
+        "setpoints": {
+          "heating_day_c":   19.0,
+          "heating_night_c": 12.0,
+          "cooling_c":       26.0
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "zone_r1r2_residentiel",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [4.854000, 45.756000],
+          [4.854154, 45.756000],
+          [4.854154, 45.756090],
+          [4.854000, 45.756090],
+          [4.854000, 45.756000]
+        ]]
+      },
+      "properties": {
+        "zone_id":    "zone_r1r2_residentiel",
+        "zone_label": "R+1 / R+2 — Logements",
+        "usage":      "residential",
+        "height_m":   6.0,
+        "n_floors":   2,
+        "year_built": 1978,
+        "is_ground_floor": false,
+        "construction_class": "heavy",
+        "envelope": {
+          "walls": {
+            "composition": {
+              "layers": [
+                {"material_id": "brick_hollow",  "thickness_m": 0.20},
+                {"material_id": "air_gap",       "thickness_m": 0.04},
+                {"material_id": "plasterboard",  "thickness_m": 0.013}
+              ]
+            }
+          },
+          "roof": {
+            "type": "flat",
+            "composition": {
+              "layers": [
+                {"material_id": "concrete_dense",   "thickness_m": 0.20},
+                {"material_id": "mineral_wool",     "thickness_m": 0.10},
+                {"material_id": "bitumen_membrane", "thickness_m": 0.005}
+              ],
+              "surface_resistance_interior": 0.10,
+              "surface_resistance_exterior": 0.04
+            }
+          },
+          "windows": {
+            "wwr_by_orientation": {
+              "north": 0.15,
+              "south": 0.30,
+              "east":  0.20,
+              "west":  0.20
+            },
+            "glazing": {
+              "uw_w_m2k":    2.8,
+              "g_value":     0.70,
+              "frame_factor":0.70
+            }
+          },
+          "thermal_bridge_quality": "default"
+        },
+        "ventilation": {
+          "type": "mec_extract",
+          "air_change_rate_h": 0.6,
+          "heat_recovery_efficiency": 0.0
+        },
+        "energy_systems": [
+          {
+            "system_id": "gaz_residentiel",
+            "type":      "gas_boiler",
+            "fuel":      "natural_gas",
+            "covers":    ["heating", "dhw"],
+            "efficiency_nominal": 0.87,
+            "distribution": "radiators"
+          }
+        ],
+        "occupancy": {
+          "schedule":       "residential_standard",
+          "n_occupants":    8,
+          "appliances_w_m2":4.0,
+          "lighting_w_m2":  2.5
+        }
+      }
+    }
+  ]
+}
