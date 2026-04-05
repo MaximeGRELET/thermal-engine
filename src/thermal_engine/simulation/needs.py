@@ -46,6 +46,46 @@ from ..data.thermal_bridges_db import get_psi
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Paramètres de calibration
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class CalibrationParams:
+    """
+    Overrides appliqués sur une zone au moment de la simulation.
+    Toute valeur à None est ignorée (le modèle utilise sa valeur calculée).
+
+    Usage :
+        params = {
+            "zone_rdc": CalibrationParams(u_walls=1.5, infiltration_ach=0.8),
+        }
+        result = compute_building_needs(building, weather, calibration=params)
+    """
+    # Enveloppe — U-values (W/m²K)
+    u_walls:   float | None = None
+    u_roof:    float | None = None
+    u_floor:   float | None = None
+    u_windows: float | None = None
+
+    # Vitrages — taux moyen tous azimuts (fraction 0-1)
+    wwr_override: float | None = None
+
+    # Ventilation / infiltration (vol/h)
+    infiltration_ach:  float | None = None   # remplace zone.ventilation.infiltration_ach
+    ventilation_ach:   float | None = None   # remplace zone.ventilation.mechanical_ach
+
+    # Consignes de température (°C)
+    t_heating: float | None = None
+    t_cooling: float | None = None
+
+    # Apports internes (W/m²) — override global
+    internal_gains_w_m2: float | None = None
+
+    # Altitude (m) — affecte la densité de l'air → H_V
+    altitude_m: float | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Résultats
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -179,6 +219,7 @@ def compute_building_needs(
     method: str = "monthly",
     t_setpoint_heating: float | None = None,
     t_setpoint_cooling: float | None = None,
+    calibration: dict[str, "CalibrationParams"] | None = None,
 ) -> BuildingNeedsResult:
     """
     Calcule les besoins énergétiques du bâtiment complet.
@@ -189,22 +230,29 @@ def compute_building_needs(
     weather : WeatherSeries
     method : "monthly" | "hourly"
     t_setpoint_heating : float | None
-        Override la consigne de chauffage (utilise celle de la zone si None)
+        Override global de la consigne de chauffage.
     t_setpoint_cooling : float | None
-        Override la consigne de refroidissement
+        Override global de la consigne de refroidissement.
+    calibration : dict[zone_id → CalibrationParams] | None
+        Overrides fins par zone (U-values, WWR, ACH, consignes, apports internes…).
+        Les clés sont les zone_id. Les zones sans entrée utilisent leurs valeurs par défaut.
 
     Returns
     -------
     BuildingNeedsResult
     """
+    calibration = calibration or {}
     zone_results = []
     for zone in building.zones:
-        t_heat = t_setpoint_heating or zone.setpoints.heating_day_c
-        t_cool = t_setpoint_cooling or zone.setpoints.cooling_c
+        cal = calibration.get(zone.zone_id) or calibration.get("*")  # "*" = toutes zones
+        t_heat = (cal.t_heating if cal and cal.t_heating is not None
+                  else t_setpoint_heating or zone.setpoints.heating_day_c)
+        t_cool = (cal.t_cooling if cal and cal.t_cooling is not None
+                  else t_setpoint_cooling or zone.setpoints.cooling_c)
         if method == "hourly":
-            result = _compute_zone_needs_hourly(zone, weather, t_heat, t_cool)
+            result = _compute_zone_needs_hourly(zone, weather, t_heat, t_cool, cal)
         else:
-            result = _compute_zone_needs_monthly(zone, weather, t_heat, t_cool)
+            result = _compute_zone_needs_monthly(zone, weather, t_heat, t_cool, cal)
         zone_results.append(result)
 
     # Agrégation bâtiment
@@ -249,6 +297,7 @@ def _compute_zone_needs_monthly(
     weather: WeatherSeries,
     t_heating: float,
     t_cooling: float,
+    cal: "CalibrationParams | None" = None,
 ) -> ZoneNeedsResult:
     """Calcul mensuel ISO 13790 pour une zone."""
     monthly_temps = weather.monthly_mean_temperature()
@@ -267,16 +316,18 @@ def _compute_zone_needs_monthly(
         is_ground_floor   = zone.is_ground_floor,
     )
 
-    elements, windows_config = _build_envelope_elements(zone, geo, floor_height)
+    elements, windows_config = _build_envelope_elements(zone, geo, floor_height, cal)
     h_t = transmission_heat_loss_coefficient(elements)
 
     # ─── 2. Coefficient H_V (ventilation) ────────────────────────
-    eff_ach = zone.ventilation.effective_ach
-    h_v = ventilation_heat_loss_coefficient(volume, eff_ach)
+    eff_ach = _resolve_ach(zone, cal)
+    altitude_m = cal.altitude_m if cal and cal.altitude_m is not None else 0.0
+    h_v = ventilation_heat_loss_coefficient(volume, eff_ach, altitude_m=altitude_m)
 
     # ─── 3. Pertes mensuelles ─────────────────────────────────────
     q_tr  = transmission_losses_monthly(h_t, t_heating, monthly_temps)
-    q_ve  = ventilation_losses_monthly(volume, eff_ach, t_heating, monthly_temps)
+    q_ve  = ventilation_losses_monthly(volume, eff_ach, t_heating, monthly_temps,
+                                       altitude_m=altitude_m)
     q_loss = q_tr + q_ve
 
     # ─── 4. Apports solaires ─────────────────────────────────────
@@ -284,15 +335,22 @@ def _compute_zone_needs_monthly(
     q_sol_monthly = solar_gains_monthly(irr_series, windows_config, weather.timestamps)
 
     # ─── 5. Apports internes ─────────────────────────────────────
-    n_persons = zone.occupancy.effective_n_persons(area)
-    q_int_monthly = internal_gains_monthly(
-        floor_area_m2    = area,
-        n_persons        = n_persons,
-        schedule_name    = zone.occupancy.schedule_name,
-        heat_per_person_w= zone.occupancy.heat_per_person_w,
-        appliances_w_m2  = zone.occupancy.appliances_w_m2,
-        lighting_w_m2    = zone.occupancy.lighting_w_m2,
-    )
+    if cal and cal.internal_gains_w_m2 is not None:
+        # Override global en W/m² → kWh/mois
+        q_int_monthly = np.array([
+            cal.internal_gains_w_m2 * area * h / 1000
+            for h in HOURS_PER_MONTH
+        ])
+    else:
+        n_persons = zone.occupancy.effective_n_persons(area)
+        q_int_monthly = internal_gains_monthly(
+            floor_area_m2    = area,
+            n_persons        = n_persons,
+            schedule_name    = zone.occupancy.schedule_name,
+            heat_per_person_w= zone.occupancy.heat_per_person_w,
+            appliances_w_m2  = zone.occupancy.appliances_w_m2,
+            lighting_w_m2    = zone.occupancy.lighting_w_m2,
+        )
 
     # ─── 6. Besoin de chauffage (méthode gain-utilisation ISO 13790) ─
     tau = thermal_time_constant_h(
@@ -405,6 +463,20 @@ def _iso13790_monthly_needs(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers calibration
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _resolve_ach(zone: Zone, cal: "CalibrationParams | None") -> float:
+    """Retourne le taux de renouvellement d'air effectif (infiltration + mécanique)."""
+    if cal is None:
+        return zone.ventilation.effective_ach
+    infil = cal.infiltration_ach if cal.infiltration_ach is not None else zone.ventilation.infiltration_ach
+    mech  = cal.ventilation_ach  if cal.ventilation_ach  is not None else zone.ventilation.mechanical_ach
+    return infil + mech
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Construction des éléments d'enveloppe depuis la géométrie
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -412,6 +484,7 @@ def _build_envelope_elements(
     zone: Zone,
     geo,   # ZoneGeometry
     floor_height: float,
+    cal: "CalibrationParams | None" = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Construit la liste des éléments thermiques (pour H_T) et la config des fenêtres.
@@ -422,10 +495,14 @@ def _build_envelope_elements(
     windows_config : list[dict]  Configuration pour solar_gains_through_window
     """
     env      = zone.envelope
-    u_wall   = env.walls.u_value_w_m2k
-    u_roof   = env.roof.u_value_w_m2k
-    u_win    = env.windows.uw_w_m2k
+    # U-values : calibration override > valeur calculée depuis couches
+    u_wall   = cal.u_walls   if cal and cal.u_walls   is not None else env.walls.u_value_w_m2k
+    u_roof   = cal.u_roof    if cal and cal.u_roof    is not None else env.roof.u_value_w_m2k
+    u_floor  = cal.u_floor   if cal and cal.u_floor   is not None else getattr(env.ground_floor, "u_value_w_m2k", 0.5)
+    u_win    = cal.u_windows if cal and cal.u_windows is not None else env.windows.uw_w_m2k
     tb_qual  = env.thermal_bridge_quality
+    # WWR global override (fraction 0-1), appliqué uniformément à tous les azimuts
+    wwr_global = cal.wwr_override if cal and cal.wwr_override is not None else None
 
     elements       = []
     windows_config = []
@@ -438,11 +515,12 @@ def _build_envelope_elements(
         for floor_idx in range(zone.n_floors):
             wall_area_gross = seg.length_m * floor_height
 
-            # WWR pour cette orientation
-            orient_label = orientation_label(seg.azimuth_deg).lower()
-            # Normalisation NE/SE/... → compass principal
-            orient_simple = _simplify_orientation(seg.azimuth_deg)
-            wwr = env.windows.wwr(orient_simple)
+            # WWR pour cette orientation (override global si fourni)
+            if wwr_global is not None:
+                wwr = wwr_global
+            else:
+                orient_simple = _simplify_orientation(seg.azimuth_deg)
+                wwr = env.windows.wwr(orient_simple)
             win_area  = wall_area_gross * wwr
             wall_area_net = wall_area_gross - win_area
 
@@ -517,18 +595,21 @@ def _build_envelope_elements(
 
     # ─── Plancher bas ────────────────────────────────────────────
     if zone.is_ground_floor and env.ground_floor is not None:
-        from ..core.thermal import u_value_ground_floor_iso13370
-        u_floor = u_value_ground_floor_iso13370(
-            floor_area_m2 = geo.ground_floor_area_m2,
-            perimeter_m   = geo.perimeter_m,
-            wall_u_value  = u_wall,
-            floor_layers  = [(l.thickness_m, l.lambda_w_mk) for l in env.ground_floor.layers],
-        )
+        if cal and cal.u_floor is not None:
+            u_floor_eff = cal.u_floor
+        else:
+            from ..core.thermal import u_value_ground_floor_iso13370
+            u_floor_eff = u_value_ground_floor_iso13370(
+                floor_area_m2 = geo.ground_floor_area_m2,
+                perimeter_m   = geo.perimeter_m,
+                wall_u_value  = u_wall,
+                floor_layers  = [(l.thickness_m, l.lambda_w_mk) for l in env.ground_floor.layers],
+            )
         elements.append({
             "id":       "ground_floor",
             "type":     "surface",
             "category": "floor",
-            "u_value":  u_floor,
+            "u_value":  u_floor_eff,
             "area_m2":  geo.ground_floor_area_m2,
             "b_factor": 1.0,
         })
@@ -614,6 +695,7 @@ def _compute_zone_needs_hourly(
     weather: WeatherSeries,
     t_heating: float,
     t_cooling: float,
+    cal: "CalibrationParams | None" = None,
 ) -> ZoneNeedsResult:
     """
     Simulation horaire RC à 1 nœud.
@@ -638,9 +720,11 @@ def _compute_zone_needs_hourly(
         roof_type        = zone.envelope.roof_type,
         is_ground_floor  = zone.is_ground_floor,
     )
-    elements, windows_config = _build_envelope_elements(zone, geo, zone.floor_height_m)
+    elements, windows_config = _build_envelope_elements(zone, geo, zone.floor_height_m, cal)
     h_t = transmission_heat_loss_coefficient(elements)
-    h_v = ventilation_heat_loss_coefficient(volume, zone.ventilation.effective_ach)
+    altitude_m = cal.altitude_m if cal and cal.altitude_m is not None else 0.0
+    eff_ach    = _resolve_ach(zone, cal)
+    h_v = ventilation_heat_loss_coefficient(volume, eff_ach, altitude_m=altitude_m)
     h_total = h_t + h_v   # W/K
 
     # Capacité thermique [J/K]
@@ -660,16 +744,19 @@ def _compute_zone_needs_hourly(
         )
 
     # Apports internes horaires (W)
-    occ = get_occupancy_schedule(zone.occupancy.schedule_name)
-    n_pers = zone.occupancy.effective_n_persons(area)
-    q_int_w = internal_gains_hourly(
-        floor_area_m2       = area,
-        n_persons           = n_pers,
-        occupation_schedule = occ,
-        heat_per_person_w   = zone.occupancy.heat_per_person_w,
-        appliances_w_m2     = zone.occupancy.appliances_w_m2,
-        lighting_w_m2       = zone.occupancy.lighting_w_m2,
-    )
+    if cal and cal.internal_gains_w_m2 is not None:
+        q_int_w = np.full(8760, cal.internal_gains_w_m2 * area)
+    else:
+        occ = get_occupancy_schedule(zone.occupancy.schedule_name)
+        n_pers = zone.occupancy.effective_n_persons(area)
+        q_int_w = internal_gains_hourly(
+            floor_area_m2       = area,
+            n_persons           = n_pers,
+            occupation_schedule = occ,
+            heat_per_person_w   = zone.occupancy.heat_per_person_w,
+            appliances_w_m2     = zone.occupancy.appliances_w_m2,
+            lighting_w_m2       = zone.occupancy.lighting_w_m2,
+        )
     q_gains_w = q_solar_w + q_int_w
 
     # Simulation Euler implicite
@@ -716,8 +803,9 @@ def _compute_zone_needs_hourly(
 
     # Pertes mensuelles (rétrocalcul)
     q_tr_m = transmission_losses_monthly(h_t, t_heating, weather.monthly_mean_temperature())
-    q_ve_m = ventilation_losses_monthly(volume, zone.ventilation.effective_ach,
-                                         t_heating, weather.monthly_mean_temperature())
+    q_ve_m = ventilation_losses_monthly(volume, eff_ach,
+                                         t_heating, weather.monthly_mean_temperature(),
+                                         altitude_m=altitude_m)
 
     dhw_need = zone.dhw_need_kwh_per_year()
     monthly_temps = weather.monthly_mean_temperature()

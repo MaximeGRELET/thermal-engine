@@ -15,7 +15,7 @@ API publique :
 
 from .io.geojson_loader import load_building
 from .climate.epw_parser import parse_epw, summarize_epw
-from .simulation.needs import compute_building_needs
+from .simulation.needs import compute_building_needs, CalibrationParams
 from .simulation.renovation import (
     simulate_renovation,
     simulate_multiple_scenarios,
@@ -43,7 +43,7 @@ __all__ = [
     # I/O
     "load_building", "parse_epw", "summarize_epw",
     # Calcul
-    "compute_building_needs",
+    "compute_building_needs", "CalibrationParams",
     # Rénovation
     "simulate_renovation", "simulate_multiple_scenarios", "build_standard_scenarios",
     "RenovationScenario",
