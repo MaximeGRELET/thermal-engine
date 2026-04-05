@@ -5,6 +5,7 @@ Références : ISO 13790, EN 15242, EN 15251.
 """
 
 from __future__ import annotations
+import math
 import numpy as np
 
 # Propriétés de l'air à conditions standard (20°C, 1013 hPa)
@@ -19,15 +20,19 @@ def ventilation_heat_loss_coefficient(
     effective_ach: float,
     wind_speed_m_s: float = 0.0,
     wind_correction: bool = False,
+    altitude_m: float = 0.0,
 ) -> float:
     """
     Coefficient de déperdition par ventilation H_V [W/K].
 
-    H_V = ρ_air · Cp_air · V_dot
-        = ρ_air · Cp_air · Volume · ACH_eff / 3600
+    H_V = ρ_air(alt) · Cp_air · V_dot
+        = ρ_air(alt) · Cp_air · Volume · ACH_eff / 3600
 
     Correction éolienne (EN 15242) optionnelle :
       ACH_eff_wind = ACH_eff + 0.04 × v_vent  (approximation)
+
+    Correction altimétrique (atmosphère standard) :
+      ρ_air(alt) = RHO_AIR × exp(-alt / 8500)
 
     Parameters
     ----------
@@ -36,6 +41,7 @@ def ventilation_heat_loss_coefficient(
                                (pour VMC double flux : ACH × (1 - η_récup))
     wind_speed_m_s : float     Vitesse du vent [m/s]
     wind_correction : bool     Appliquer la correction éolienne
+    altitude_m : float         Altitude du bâtiment [m] (défaut : 0)
 
     Returns
     -------
@@ -47,9 +53,12 @@ def ventilation_heat_loss_coefficient(
         ach_extra = 0.04 * wind_speed_m_s
         ach = ach + ach_extra
 
+    # Masse volumique corrigée selon l'altitude (atmosphère standard)
+    rho = RHO_AIR * math.exp(-altitude_m / 8500.0)
+
     # H_V = ρ × Cp × V_dot  [W/K]
     # V_dot = Volume × ACH / 3600  [m³/s]
-    h_v = RHO_AIR * CP_AIR * volume_m3 * ach / 3600.0
+    h_v = rho * CP_AIR * volume_m3 * ach / 3600.0
     return float(h_v)
 
 
@@ -82,6 +91,7 @@ def ventilation_losses_monthly(
     t_interior_c: float,
     monthly_mean_temp_c: list[float],
     hours_per_month: np.ndarray | None = None,
+    altitude_m: float = 0.0,
 ) -> np.ndarray:
     """
     Déperditions mensuelles par ventilation [kWh/mois].
@@ -93,6 +103,7 @@ def ventilation_losses_monthly(
     t_interior_c : float
     monthly_mean_temp_c : list[float]    12 valeurs
     hours_per_month : np.ndarray         Heures par mois (défaut : année standard)
+    altitude_m : float                   Altitude [m] pour correction de densité de l'air
 
     Returns
     -------
@@ -102,7 +113,7 @@ def ventilation_losses_monthly(
         from .thermal import HOURS_PER_MONTH
         hours_per_month = HOURS_PER_MONTH
 
-    h_v = ventilation_heat_loss_coefficient(volume_m3, effective_ach)
+    h_v = ventilation_heat_loss_coefficient(volume_m3, effective_ach, altitude_m=altitude_m)
     temps = np.array(monthly_mean_temp_c)
     delta_t = np.maximum(0, t_interior_c - temps)
     return h_v * delta_t * hours_per_month / 1000.0
