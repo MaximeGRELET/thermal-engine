@@ -89,8 +89,14 @@ class ZoneNeedsResult:
     # Détail des éléments d'enveloppe
     envelope_breakdown: dict = field(default_factory=dict)
 
+    # Données horaires (uniquement renseignées avec method="hourly")
+    t_int_hourly: list[float] | None = None        # °C × 8760
+    q_heat_hourly_kw: list[float] | None = None    # kW × 8760
+    comfort_hours_above_26c: int | None = None      # heures/an > 26°C
+    coldest_week_start_h: int | None = None         # indice horaire de début
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "zone_id":                self.zone_id,
             "zone_label":             self.zone_label,
             "floor_area_m2":          round(self.floor_area_m2, 1),
@@ -111,6 +117,14 @@ class ZoneNeedsResult:
             "solar_gains_monthly":    [round(v, 0) for v in self.solar_gains_monthly],
             "envelope_breakdown":     self.envelope_breakdown,
         }
+        if self.t_int_hourly is not None:
+            d["hourly"] = {
+                "t_int":                [round(v, 1) for v in self.t_int_hourly],
+                "q_heat_kw":            [round(v, 2) for v in self.q_heat_hourly_kw],
+                "comfort_h_above_26c":  self.comfort_hours_above_26c,
+                "coldest_week_start_h": self.coldest_week_start_h,
+            }
+        return d
 
 
 @dataclass
@@ -721,6 +735,13 @@ def _compute_zone_needs_hourly(
     co2_m2 = sys_kpis["co2_kg"] / max(1, area)
     breakdown = _envelope_breakdown(elements, q_tr_m, q_ve_m)
 
+    # ── Champs horaires ────────────────────────────────────────────────────────
+    comfort_h = int(np.sum(t_int > 26.0))
+
+    # Semaine la plus froide : fenêtre glissante de 168h maximisant le besoin
+    q_heat_rolling = np.convolve(q_heat, np.ones(168), mode='valid')
+    coldest_start  = int(np.argmax(q_heat_rolling))
+
     return ZoneNeedsResult(
         zone_id                = zone.zone_id,
         zone_label             = zone.label,
@@ -746,4 +767,8 @@ def _compute_zone_needs_hourly(
         co2_kg                 = sys_kpis["co2_kg"],
         dpe_class              = dpe_final(ep_m2, co2_m2),
         envelope_breakdown     = breakdown,
+        t_int_hourly           = [round(float(v), 1) for v in t_int],
+        q_heat_hourly_kw       = [round(float(v) / 1000, 2) for v in q_heat],
+        comfort_hours_above_26c= comfort_h,
+        coldest_week_start_h   = coldest_start,
     )
