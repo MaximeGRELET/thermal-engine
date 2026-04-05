@@ -468,12 +468,26 @@ def _iso13790_monthly_needs(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _resolve_ach(zone: Zone, cal: "CalibrationParams | None") -> float:
-    """Retourne le taux de renouvellement d'air effectif (infiltration + mécanique)."""
+    """Retourne le taux de renouvellement d'air effectif (infiltration + mécanique).
+
+    VentilationSystem ne distingue pas infiltration et mécanique — il expose
+    uniquement effective_ach. Les overrides de calibration s'additionnent :
+    si seul infiltration_ach est fourni, on remplace effective_ach par cette valeur
+    plus la part mécanique résiduelle (0 car non connue séparément), et vice-versa.
+    Si les deux sont fournis, on les somme.
+    Si aucun, fallback sur effective_ach du modèle.
+    """
     if cal is None:
         return zone.ventilation.effective_ach
-    infil = cal.infiltration_ach if cal.infiltration_ach is not None else zone.ventilation.infiltration_ach
-    mech  = cal.ventilation_ach  if cal.ventilation_ach  is not None else zone.ventilation.mechanical_ach
-    return infil + mech
+    has_infil = cal.infiltration_ach is not None
+    has_mech  = cal.ventilation_ach  is not None
+    if has_infil and has_mech:
+        return cal.infiltration_ach + cal.ventilation_ach
+    if has_infil:
+        return cal.infiltration_ach
+    if has_mech:
+        return cal.ventilation_ach
+    return zone.ventilation.effective_ach
 
 
 # ─────────────────────────────────────────────────────────────────────────────
