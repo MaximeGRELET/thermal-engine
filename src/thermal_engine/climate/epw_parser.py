@@ -125,9 +125,12 @@ def _parse_hourly_data(data_lines: list[str]) -> dict[str, np.ndarray]:
             pd.io.common.StringIO(content),
             header=None,
             names=col_names,
-            dtype=float,
+            dtype=object,
             on_bad_lines="skip",
         )
+        # Convert numeric columns to float (non-numeric values → NaN)
+        for col in col_names:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     except Exception as exc:
         raise ValueError(f"Erreur de parsing des données horaires EPW : {exc}") from exc
 
