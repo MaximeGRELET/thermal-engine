@@ -36,8 +36,8 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/maxime-grelet/thermal-engine"
-Issues     = "https://github.com/maxime-grelet/thermal-engine/issues"
+Repository = "https://github.com/MaximeGRELET/thermal-engine"
+Issues     = "https://github.com/MaximeGRELET/thermal-engine/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
