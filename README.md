@@ -28,7 +28,7 @@ Physics-based building energy analysis library — ISO 13790, multi-zone GeoJSON
 pip install -e ".[dev]"
 
 # As a dependency in another project
-pip install git+https://github.com/maxime-grelet/thermal-engine.git
+pip install git+https://github.com/MaximeGRELET/thermal-engine.git
 ```
 
 **Requirements**: Python ≥ 3.11, numpy ≥ 1.26, pandas ≥ 2.1, scipy ≥ 1.11, shapely ≥ 2.0
